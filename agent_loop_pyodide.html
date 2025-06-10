@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Anthropic in the Browser via Pyodide</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; }
+      #output { white-space: pre-wrap; border: 1px solid #ccc; padding: 1rem; min-height: 4rem; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Anthropic + Pyodide demo</h1>
+
+  <p>
+    <label>
+      Anthropic API key:
+      <input id="api_key" type="password" size="42" placeholder="sk-ant-..." autocomplete="off">
+    </label>
+    <button id="install" disabled>Install &amp; Run</button>
+  </p>
+
+  <div id="output">Waiting for Pyodide…</div>
+
+  <!-- Load Pyodide -->
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.27.0/full/pyodide.js"></script>
+  <script>
+    (async () => {
+      const out = document.getElementById('output');
+      out.textContent = 'Initializing Pyodide…';
+      const pyodide = await loadPyodide();
+      await pyodide.loadPackage('micropip');
+      out.textContent = 'Pyodide ready. Click "Install & Run" to fetch anthropic (first load may take up to a minute).';
+      document.getElementById('install').disabled = false;
+
+      document.getElementById('install').addEventListener('click', async () => {
+        const key = document.getElementById('api_key').value.trim();
+        if (!key) { alert('Please enter your API key first.'); return; }
+
+        out.textContent = 'Installing anthropic>=0.45.0 …';
+        // Install anthropic
+        await pyodide.runPythonAsync(`
+import micropip, asyncio
+await micropip.install("anthropic>=0.45.0")
+`);
+
+        out.textContent = 'Package installed. Calling Anthropic…';
+
+        // expose key to Python
+        pyodide.globals.set('anthropic_key', key);
+
+        // run demo call
+        try {
+          await pyodide.runPythonAsync(`
+import os, anthropic, js
+os.environ["ANTHROPIC_API_KEY"] = anthropic_key
+
+client = anthropic.Anthropic()
+
+resp = client.messages.create(
+    model="claude-3-haiku-20240307",
+    max_tokens=64,
+    messages=[{"role":"user","content":"Say hello from the browser!"}]
+)
+
+js.document.getElementById("output").textContent = resp.content[0].text
+`);
+        } catch (err) {
+          out.textContent = 'Error: ' + err;
+          console.error(err);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

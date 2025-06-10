@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PureOpenAIClient Demo</title>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        #output {
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        .loading {
+            color: #666;
+            font-style: italic;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <h1>PureOpenAIClient Demo</h1>
+    <p>This demo runs our PureOpenAIClient implementation in the browser using Pyodide.</p>
+    
+    <button id="runButton" onclick="runPython()">Run Demo</button>
+    <div id="output">Click the button to run the demo...</div>
+
+    <script>
+        let pyodide;
+
+        async function main() {
+            pyodide = await loadPyodide();
+            await pyodide.loadPackage("micropip");
+            const micropip = pyodide.pyimport("micropip");
+            await micropip.install("pydantic");
+            await micropip.install("requests");
+            console.log("Pyodide and packages loaded successfully");
+        }
+
+        async function runPython() {
+            const output = document.getElementById("output");
+            const button = document.getElementById("runButton");
+            
+            try {
+                button.disabled = true;
+                output.innerHTML = '<span class="loading">Loading Pyodide and running demo...</span>';
+                
+                if (!pyodide) {
+                    await main();
+                }
+
+                // Load our Python files into Pyodide's virtual filesystem
+                const modelsResponse = await fetch('./models.py');
+                const modelsCode = await modelsResponse.text();
+                pyodide.FS.writeFile('/models.py', modelsCode);
+
+                const clientResponse = await fetch('./client.py');
+                const clientCode = await clientResponse.text();
+                pyodide.FS.writeFile('/client.py', clientCode);
+
+                // Run the demo code
+                const demoCode = `
+import sys
+sys.path.append('/')  # Add root directory to Python path
+from models import Message
+from client import PureOpenAIClient
+
+# Initialize the client
+client = PureOpenAIClient(
+    api_key="sk-proj-...",
+    base_url="https://api.openai.com/v1"
+)
+
+# Create messages
+messages = [
+    Message(role="system", content="You are a helpful assistant."),
+    Message(role="user", content="What are three interesting facts about Python?")
+]
+
+# Make a chat completion request
+response = client.chat_completions(
+    model="gpt-3.5-turbo",
+    messages=messages,
+    temperature=0.7,
+    max_tokens=150
+)
+
+# Print the response
+print("Response ID:", response.id)
+print("Model:", response.model)
+print("\\nMessage Content:")
+print(response.choices[0].message.content)
+print("\\nToken Usage:")
+print(f"Prompt Tokens: {response.usage.prompt_tokens}")
+print(f"Completion Tokens: {response.usage.completion_tokens}")
+print(f"Total Tokens: {response.usage.total_tokens}")
+`;
+                
+                const result = await pyodide.runPythonAsync(demoCode);
+                output.textContent = pyodide.runPython(`
+import sys
+from io import StringIO
+sys.stdout = StringIO()
+${demoCode}
+sys.stdout.getvalue()
+`);
+            } catch (error) {
+                output.textContent = `Error: ${error.message}`;
+            } finally {
+                button.disabled = false;
+            }
+        }
+
+        // Initialize Pyodide when the page loads
+        main().catch(error => {
+            const output = document.getElementById("output");
+            output.textContent = `Error loading Pyodide: ${error.message}`;
+        });
+    </script>
+</body>
+</html>
